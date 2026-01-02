@@ -147,6 +147,11 @@ function processTruncatedAddresses(textNode: Text) {
   // Skip if already processed
   if (!parent || isAlreadyProcessed(parent)) return;
 
+  // Skip if this is inside a tx/transaction link (tx hashes, not addresses)
+  const closestLink = parent.closest('a');
+  const href = closestLink?.getAttribute('href') || '';
+  if (href.includes('/tx/') || href.includes('/transaction/')) return;
+
   // First, try to find full address in element attributes (title, data-*, href, etc.)
   const fullAddress = findAddressInAttributes(parent);
   if (fullAddress && text.includes('0x')) {
@@ -207,8 +212,9 @@ function findAddressInAttributes(element: Element | null): string | null {
     }
 
     // Check href (common in block explorers: /address/0x...)
+    // But skip tx/transaction links - those are tx hashes, not addresses
     const href = element.getAttribute('href');
-    if (href) {
+    if (href && !href.includes('/tx/') && !href.includes('/transaction/')) {
       const match = href.match(addressRegex);
       if (match) {
         return normalizeAddress(match[0]);
