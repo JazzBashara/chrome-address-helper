@@ -1,0 +1,25 @@
+*~
+*.DS_Store
+.DS_Store
+node_modules/
+dist/
+*.swp
+.idea/
+
+# Build artifacts
+wallet-tagger.zip
+
+# Temporary files
+_debug/
+_metadata/
+
+# IDE
+*.iml
+.vscode/
+
+# Private tag data - add your own CSVs here
+src/data/*.csv
+
+# Screenshots
+*.png
+!src/icons/*.png

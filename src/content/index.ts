@@ -1,0 +1,838 @@
+import { Tag, ACTION_LINKS } from '../types';
+import {
+  findAddressesInText,
+  normalizeAddress,
+  truncateAddress,
+  matchTruncatedAddress,
+  matchShortAddress,
+} from '../utils/address';
+import './styles.css';
+
+let knownAddresses: string[] = [];
+let tagCache: Map<string, { name: string; entity?: string }> = new Map();
+let enabled = true;
+
+// Check if an element or any of its ancestors is already processed or is our panel
+function isAlreadyProcessed(element: Element | null): boolean {
+  while (element) {
+    if (
+      element.classList.contains('wt-processed') ||
+      element.classList.contains('wt-address-wrapper') ||
+      element.classList.contains('wt-address-text') ||
+      element.classList.contains('wt-indicator') ||
+      element.classList.contains('wt-control-panel') ||
+      element.classList.contains('wt-control-panel-bridge') ||
+      element.classList.contains('wt-panel-header') ||
+      element.classList.contains('wt-panel-address')
+    ) {
+      return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
+}
+
+// Initialize content script
+async function initialize() {
+  console.log('[WalletTagger] Content script loaded');
+
+  // Get all tags with their data from background
+  const response = await chrome.runtime.sendMessage({ type: 'GET_ALL_TAGS_DATA' });
+  if (response?.tags) {
+    tagCache = new Map(Object.entries(response.tags));
+    knownAddresses = Array.from(tagCache.keys());
+    console.log(`[WalletTagger] Loaded ${knownAddresses.length} tagged addresses`);
+  }
+
+  // Get settings
+  const settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+  enabled = settings?.enabled ?? true;
+
+  if (enabled) {
+    // Initial scan
+    scanPage();
+
+    // Watch for dynamic content
+    observeDOM();
+
+    // Check for special pages
+    handleSpecialPages();
+  }
+}
+
+function scanPage() {
+  if (!enabled) return;
+
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        // Skip script and style tags
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        const tagName = parent.tagName.toLowerCase();
+        if (['script', 'style', 'noscript', 'textarea', 'input'].includes(tagName)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        // Skip already processed - check ancestors too
+        if (isAlreadyProcessed(parent)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    }
+  );
+
+  const nodesToProcess: Text[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    nodesToProcess.push(node as Text);
+  }
+
+  for (const textNode of nodesToProcess) {
+    processTextNode(textNode);
+  }
+}
+
+function processTextNode(textNode: Text) {
+  const text = textNode.textContent || '';
+  const matches = findAddressesInText(text);
+
+  if (matches.length === 0) {
+    // Check for truncated addresses if we have known addresses
+    if (knownAddresses.length > 0) {
+      processTruncatedAddresses(textNode);
+    }
+    return;
+  }
+
+  // Process found addresses
+  const parent = textNode.parentElement;
+  if (!parent) return;
+
+  // Mark as processed
+  parent.classList.add('wt-processed');
+
+  // Create wrapper for the processed content
+  const fragment = document.createDocumentFragment();
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    // Add text before match
+    if (match.startIndex > lastIndex) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.startIndex)));
+    }
+
+    // Create address element
+    const addressEl = createAddressElement(match.address, match.fullMatch);
+    fragment.appendChild(addressEl);
+
+    lastIndex = match.endIndex;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+
+  // Replace text node with processed content
+  parent.replaceChild(fragment, textNode);
+}
+
+function processTruncatedAddresses(textNode: Text) {
+  const text = textNode.textContent || '';
+  const parent = textNode.parentElement;
+
+  // Skip if already processed
+  if (!parent || isAlreadyProcessed(parent)) return;
+
+  // First, try to find full address in element attributes (title, data-*, href, etc.)
+  const fullAddress = findAddressInAttributes(parent);
+  if (fullAddress && text.includes('0x')) {
+    // The text contains a truncated address and we found the full one in attributes
+    const truncatedMatch = text.match(/0x[a-fA-F0-9]{2,10}(\.{2,3})[a-fA-F0-9]{2,10}|0x[a-fA-F0-9]{4,8}/i);
+    if (truncatedMatch) {
+      wrapWithAddressElement(textNode, truncatedMatch.index!, truncatedMatch[0].length, fullAddress);
+      return;
+    }
+  }
+
+  // Fallback: try to match truncated format against known addresses
+  const truncatedRegex = /0x[a-fA-F0-9]{2,10}\.{2,3}[a-fA-F0-9]{2,10}/gi;
+  let truncMatch;
+
+  while ((truncMatch = truncatedRegex.exec(text)) !== null) {
+    const matched = matchTruncatedAddress(truncMatch[0], knownAddresses);
+    if (matched) {
+      wrapWithAddressElement(textNode, truncMatch.index, truncMatch[0].length, matched);
+      return;
+    }
+  }
+
+  // Check for short format (0x923)
+  const shortRegex = /\(0x[a-fA-F0-9]{3,6}\)/gi;
+  let shortMatch;
+
+  while ((shortMatch = shortRegex.exec(text)) !== null) {
+    const matched = matchShortAddress(shortMatch[0], knownAddresses);
+    if (matched) {
+      wrapWithAddressElement(textNode, shortMatch.index, shortMatch[0].length, matched);
+      return;
+    }
+  }
+}
+
+// Look for full address in element attributes (title, data-*, href, etc.)
+function findAddressInAttributes(element: Element | null): string | null {
+  const addressRegex = /0x[a-fA-F0-9]{40}/i;
+
+  while (element && element !== document.body) {
+    // Check common attributes that might contain the full address
+    const attributesToCheck = [
+      element.getAttribute('title'),
+      element.getAttribute('data-address'),
+      element.getAttribute('data-original-title'),
+      element.getAttribute('data-clipboard-text'),
+      element.getAttribute('data-bs-title'),
+    ];
+
+    for (const attr of attributesToCheck) {
+      if (attr) {
+        const match = attr.match(addressRegex);
+        if (match) {
+          return normalizeAddress(match[0]);
+        }
+      }
+    }
+
+    // Check href (common in block explorers: /address/0x...)
+    const href = element.getAttribute('href');
+    if (href) {
+      const match = href.match(addressRegex);
+      if (match) {
+        return normalizeAddress(match[0]);
+      }
+    }
+
+    // Also check all data-* attributes
+    for (const attr of element.getAttributeNames()) {
+      if (attr.startsWith('data-')) {
+        const value = element.getAttribute(attr);
+        if (value) {
+          const match = value.match(addressRegex);
+          if (match) {
+            return normalizeAddress(match[0]);
+          }
+        }
+      }
+    }
+
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
+function wrapWithAddressElement(
+  textNode: Text,
+  startIndex: number,
+  length: number,
+  fullAddress: string
+) {
+  const text = textNode.textContent || '';
+  const parent = textNode.parentElement;
+  if (!parent) return;
+
+  parent.classList.add('wt-processed');
+
+  const fragment = document.createDocumentFragment();
+
+  // Text before
+  if (startIndex > 0) {
+    fragment.appendChild(document.createTextNode(text.slice(0, startIndex)));
+  }
+
+  // Address element
+  const displayText = text.slice(startIndex, startIndex + length);
+  const addressEl = createAddressElement(fullAddress, displayText);
+  fragment.appendChild(addressEl);
+
+  // Text after
+  if (startIndex + length < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(startIndex + length)));
+  }
+
+  parent.replaceChild(fragment, textNode);
+}
+
+function createAddressElement(address: string, displayText: string): HTMLElement {
+  const wrapper = document.createElement('span');
+  wrapper.className = 'wt-address-wrapper';
+  wrapper.dataset.address = address;
+
+  const normalizedAddr = normalizeAddress(address);
+  const tagData = tagCache.get(normalizedAddr);
+
+  if (tagData) {
+    wrapper.classList.add('wt-has-tag');
+
+    // Show tag name
+    const tagLabel = document.createElement('span');
+    tagLabel.className = 'wt-tag-label';
+    tagLabel.textContent = tagData.name;
+    wrapper.appendChild(tagLabel);
+
+    // Show short address in parentheses
+    const shortAddr = document.createElement('span');
+    shortAddr.className = 'wt-tag-short-address';
+    shortAddr.textContent = ` (${address.slice(0, 6)})`;
+    wrapper.appendChild(shortAddr);
+  } else {
+    // No tag - just show the original display text
+    const textSpan = document.createElement('span');
+    textSpan.className = 'wt-address-text';
+    textSpan.textContent = displayText;
+    wrapper.appendChild(textSpan);
+  }
+
+  // Add hover listener
+  wrapper.addEventListener('mouseenter', (e) => showControlPanel(e, address));
+  wrapper.addEventListener('mouseleave', hideControlPanelDelayed);
+
+  return wrapper;
+}
+
+let controlPanel: HTMLElement | null = null;
+let controlPanelBridge: HTMLElement | null = null;
+let hideTimeout: number | null = null;
+let currentPanelAddress: string | null = null;
+
+async function showControlPanel(event: MouseEvent, address: string) {
+  // If we're already showing this address's panel, just cancel any hide
+  if (currentPanelAddress === address && controlPanel) {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+    return;
+  }
+
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
+
+  // Get tags for this address
+  const response = await chrome.runtime.sendMessage({ type: 'GET_TAGS', address });
+  const tags: Tag[] = response?.tags || [];
+
+  // Remove existing panel and bridge
+  if (controlPanel) {
+    controlPanel.remove();
+  }
+  if (controlPanelBridge) {
+    controlPanelBridge.remove();
+  }
+
+  currentPanelAddress = address;
+
+  // Create panel
+  controlPanel = document.createElement('div');
+  controlPanel.className = 'wt-control-panel';
+
+  // Position near the element
+  const target = event.target as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  controlPanel.style.position = 'fixed';
+  controlPanel.style.left = `${rect.left - 10}px`;
+  controlPanel.style.top = `${rect.bottom}px`;  // No gap
+  controlPanel.style.zIndex = '999999';
+  controlPanel.style.paddingTop = '8px';  // Visual gap via padding instead
+
+  // Create invisible bridge that overlaps trigger and panel
+  controlPanelBridge = document.createElement('div');
+  controlPanelBridge.className = 'wt-control-panel-bridge';
+  controlPanelBridge.style.cssText = `
+    position: fixed;
+    left: ${rect.left - 20}px;
+    top: ${rect.top - 5}px;
+    width: ${rect.width + 40}px;
+    height: ${rect.height + 20}px;
+    z-index: 999998;
+    background: transparent;
+    pointer-events: auto;
+  `;
+  controlPanelBridge.addEventListener('mouseenter', () => {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  });
+  controlPanelBridge.addEventListener('mouseleave', hideControlPanelDelayed);
+  document.body.appendChild(controlPanelBridge);
+
+  // Header with address
+  const header = document.createElement('div');
+  header.className = 'wt-panel-header';
+
+  const addressText = document.createElement('span');
+  addressText.className = 'wt-panel-address';
+  addressText.textContent = truncateAddress(address, 10, 8);
+  addressText.title = address;
+  header.appendChild(addressText);
+
+  const copyAddressBtn = createCopyButton(address, 'Copy address');
+  header.appendChild(copyAddressBtn);
+
+  controlPanel.appendChild(header);
+
+  // Tags section
+  if (tags.length > 0) {
+    const tagsSection = document.createElement('div');
+    tagsSection.className = 'wt-panel-tags';
+
+    for (const tag of tags) {
+      const tagEl = document.createElement('div');
+      tagEl.className = 'wt-panel-tag';
+
+      const tagName = document.createElement('span');
+      tagName.className = 'wt-tag-name';
+      tagName.textContent = tag.entity ? `${tag.entity}: ${tag.name}` : tag.name;
+      tagEl.appendChild(tagName);
+
+      const tagSource = document.createElement('span');
+      tagSource.className = 'wt-tag-source';
+      tagSource.textContent = `(${tag.source})`;
+      tagEl.appendChild(tagSource);
+
+      const copyTagBtn = createCopyButton(tag.name, 'Copy tag');
+      tagEl.appendChild(copyTagBtn);
+
+      tagsSection.appendChild(tagEl);
+    }
+
+    controlPanel.appendChild(tagsSection);
+  }
+
+  // Actions section
+  const actionsSection = document.createElement('div');
+  actionsSection.className = 'wt-panel-actions';
+
+  for (const action of ACTION_LINKS) {
+    const actionBtn = document.createElement('a');
+    actionBtn.className = 'wt-action-btn';
+    actionBtn.href = action.urlTemplate.replace('{address}', address);
+    actionBtn.target = '_blank';
+    actionBtn.rel = 'noopener noreferrer';
+    actionBtn.title = action.name;
+
+    const icon = document.createElement('img');
+    icon.src = chrome.runtime.getURL(`icons/${action.iconFile}`);
+    icon.alt = action.name;
+    icon.className = 'wt-action-icon';
+    actionBtn.appendChild(icon);
+
+    actionsSection.appendChild(actionBtn);
+  }
+
+  controlPanel.appendChild(actionsSection);
+
+  // Keep panel open when hovering over it
+  controlPanel.addEventListener('mouseenter', () => {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  });
+  controlPanel.addEventListener('mouseleave', hideControlPanelDelayed);
+
+  document.body.appendChild(controlPanel);
+
+  // Adjust position if panel goes off screen
+  const panelRect = controlPanel.getBoundingClientRect();
+  if (panelRect.right > window.innerWidth) {
+    controlPanel.style.left = `${window.innerWidth - panelRect.width - 10}px`;
+  }
+  if (panelRect.bottom > window.innerHeight) {
+    controlPanel.style.top = `${rect.top - panelRect.height - 5}px`;
+  }
+}
+
+function hideControlPanelDelayed() {
+  hideTimeout = window.setTimeout(() => {
+    if (controlPanel) {
+      controlPanel.remove();
+      controlPanel = null;
+    }
+    if (controlPanelBridge) {
+      controlPanelBridge.remove();
+      controlPanelBridge = null;
+    }
+    currentPanelAddress = null;
+  }, 500);  // Longer delay to allow moving to panel
+}
+
+function createCopyButton(text: string, title: string): HTMLElement {
+  const btn = document.createElement('button');
+  btn.className = 'wt-copy-btn';
+  btn.title = title;
+  btn.textContent = '📋';
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✓';
+    setTimeout(() => {
+      btn.textContent = '📋';
+    }, 1000);
+  });
+  return btn;
+}
+
+function observeDOM() {
+  const observer = new MutationObserver((mutations) => {
+    let shouldScan = false;
+    for (const mutation of mutations) {
+      if (mutation.addedNodes.length > 0) {
+        shouldScan = true;
+        break;
+      }
+    }
+    if (shouldScan) {
+      // Debounce scanning
+      clearTimeout(scanDebounce);
+      scanDebounce = window.setTimeout(scanPage, 500);
+    }
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+let scanDebounce: number;
+
+// Handle special pages (Arkham labels import)
+function handleSpecialPages() {
+  const hostname = window.location.hostname;
+
+  if (hostname === 'intel.arkm.com') {
+    // Add hover controls to Arkham's existing address elements
+    setTimeout(handleArkhamAddresses, 1000);
+
+    // Also observe for dynamically loaded content
+    const arkhamObserver = new MutationObserver(() => {
+      handleArkhamAddresses();
+    });
+    arkhamObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Show import button only on labels page
+    if (window.location.pathname === '/labels') {
+      handleArkhamLabelsPage();
+    }
+  }
+
+  if (hostname === 'dexscreener.com') {
+    // Handle Dexscreener address links
+    setTimeout(handleDexscreenerAddresses, 1000);
+
+    const dexObserver = new MutationObserver(() => {
+      handleDexscreenerAddresses();
+    });
+    dexObserver.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
+function handleArkhamLabelsPage() {
+  console.log('[WalletTagger] Detected Arkham labels page');
+  setTimeout(addArkhamImportButton, 2000);
+}
+
+function handleArkhamAddresses() {
+  // Inject CSS to hide Arkham's popups (only once)
+  if (!document.getElementById('wt-arkham-popup-blocker')) {
+    const style = document.createElement('style');
+    style.id = 'wt-arkham-popup-blocker';
+    style.textContent = `
+      /* Hide Arkham's hover popups - but not our panel */
+      [data-radix-popper-content-wrapper]:not(.wt-control-panel),
+      [data-floating-ui-portal]:not(.wt-control-panel),
+      [data-radix-portal]:not(.wt-control-panel),
+      div[style*="position: absolute"][style*="left:"]:not(.wt-control-panel):not(.wt-control-panel-bridge):has(a[href*="/explorer/"]),
+      div[style*="position: fixed"][style*="left:"]:not(.wt-control-panel):not(.wt-control-panel-bridge):has(a[href*="/explorer/"]) {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Also use MutationObserver as backup to remove popups
+    const popupObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement) {
+            // Skip our own elements
+            if (node.classList.contains('wt-control-panel') ||
+                node.classList.contains('wt-control-panel-bridge') ||
+                node.closest('.wt-control-panel')) {
+              continue;
+            }
+            // Arkham uses radix/floating-ui for popups
+            if (
+              node.hasAttribute('data-radix-popper-content-wrapper') ||
+              node.hasAttribute('data-floating-ui-portal') ||
+              node.hasAttribute('data-radix-portal') ||
+              node.querySelector?.('[data-radix-popper-content-wrapper]') ||
+              node.querySelector?.('[data-radix-portal]')
+            ) {
+              node.remove();
+            }
+          }
+        }
+      }
+    });
+    popupObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // Find Arkham's address links that haven't been processed (exclude our own panel)
+  const addressLinks = document.querySelectorAll('a[href*="/explorer/address/0x"]:not(.wt-arkham-processed):not(.wt-action-btn)');
+
+  for (const link of addressLinks) {
+    link.classList.add('wt-arkham-processed');
+
+    // Extract address from href
+    const href = link.getAttribute('href') || '';
+    const match = href.match(/0x[a-fA-F0-9]{40}/i);
+    if (!match) continue;
+
+    const address = normalizeAddress(match[0]);
+
+    // Add our hover controls
+    link.addEventListener('mouseenter', (e) => showControlPanel(e as MouseEvent, address));
+    link.addEventListener('mouseleave', hideControlPanelDelayed);
+
+    // Check if we have our own tag for this address
+    const tagData = tagCache.get(address);
+    if (tagData) {
+      // Add green highlight styling to the link
+      (link as HTMLElement).style.cssText += `
+        background: rgba(74, 222, 128, 0.15) !important;
+        border: 1px dashed #4ade80 !important;
+        border-radius: 4px !important;
+        padding: 2px 4px !important;
+      `;
+
+      // Add tag label before the link text
+      const tagLabel = document.createElement('span');
+      tagLabel.className = 'wt-arkham-tag-label';
+      tagLabel.textContent = tagData.name;
+      tagLabel.style.cssText = `
+        display: inline-block;
+        color: #4ade80;
+        font-weight: 600;
+        margin-right: 6px;
+        font-size: 0.9em;
+      `;
+
+      link.insertBefore(tagLabel, link.firstChild);
+    }
+  }
+}
+
+// Close control panel when clicking elsewhere
+document.addEventListener('click', (e) => {
+  if (controlPanel && !controlPanel.contains(e.target as Node)) {
+    const target = e.target as Element;
+    if (!target.closest('.wt-arkham-indicator') && !target.closest('.wt-control-panel-bridge')) {
+      controlPanel.remove();
+      controlPanel = null;
+      if (controlPanelBridge) {
+        controlPanelBridge.remove();
+        controlPanelBridge = null;
+      }
+      currentPanelAddress = null;
+    }
+  }
+});
+
+function handleDexscreenerAddresses() {
+  // Find Dexscreener address links (they link to snowscan/snowtrace/etherscan etc)
+  const addressLinks = document.querySelectorAll<HTMLAnchorElement>('a[href*="/address/0x"]:not(.wt-dex-processed)');
+
+  for (const link of addressLinks) {
+    link.classList.add('wt-dex-processed');
+
+    // Extract address from href
+    const href = link.getAttribute('href') || '';
+    const match = href.match(/0x[a-fA-F0-9]{40}/i);
+    if (!match) continue;
+
+    const address = normalizeAddress(match[0]);
+
+    // Add hover listeners for control panel
+    link.addEventListener('mouseenter', (e) => showControlPanel(e as MouseEvent, address));
+    link.addEventListener('mouseleave', hideControlPanelDelayed);
+
+    // Check if we have a tag for this address
+    const tagData = tagCache.get(address);
+    if (tagData) {
+      // Replace the short code with our tag name
+      const originalText = link.textContent || '';
+      link.setAttribute('data-original-text', originalText);
+      link.textContent = tagData.name;
+      link.style.cssText += 'color: #4ade80 !important; font-weight: 500;';
+      link.title = `${tagData.name} (${address.slice(0, 6)}...${address.slice(-4)})`;
+    }
+  }
+}
+
+function addArkhamImportButton() {
+  // Check if button already exists
+  if (document.getElementById('wt-arkham-import')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'wt-arkham-import';
+  btn.className = 'wt-arkham-import-btn';
+  btn.textContent = '📥 Import to Wallet Tagger';
+  btn.addEventListener('click', importArkhamLabels);
+
+  // Add to page - try to find a good position
+  const container = document.querySelector('main') || document.body;
+  btn.style.position = 'fixed';
+  btn.style.bottom = '20px';
+  btn.style.right = '20px';
+  btn.style.zIndex = '999999';
+  container.appendChild(btn);
+}
+
+async function importArkhamLabels() {
+  const btn = document.getElementById('wt-arkham-import') as HTMLButtonElement;
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Importing...';
+
+  try {
+    // Fetch labels from Arkham API (uses page cookies for auth)
+    const tags = await fetchArkhamLabels();
+
+    if (tags.length === 0) {
+      btn.textContent = '❌ No labels found';
+      setTimeout(() => {
+        btn.textContent = '📥 Import to Wallet Tagger';
+        btn.disabled = false;
+      }, 2000);
+      return;
+    }
+
+    // Send to background for storage
+    const response = await chrome.runtime.sendMessage({
+      type: 'IMPORT_ARKHAM_TAGS',
+      tags,
+    });
+
+    btn.textContent = `✓ Imported ${response.count} labels`;
+    setTimeout(() => {
+      btn.textContent = '📥 Import to Wallet Tagger';
+      btn.disabled = false;
+    }, 3000);
+  } catch (error) {
+    console.error('[WalletTagger] Arkham import failed:', error);
+    btn.textContent = '❌ Import failed';
+    setTimeout(() => {
+      btn.textContent = '📥 Import to Wallet Tagger';
+      btn.disabled = false;
+    }, 2000);
+  }
+}
+
+async function fetchArkhamLabels(): Promise<Tag[]> {
+  // Use a map to dedupe by address, preferring labels over entity-only entries
+  const tagMap = new Map<string, Tag>();
+
+  // Fetch entities first (so labels can override)
+  const entitiesResponse = await fetch('https://api.arkm.com/user/entities', {
+    credentials: 'include',
+  });
+
+  if (entitiesResponse.ok) {
+    const entitiesData = await entitiesResponse.json();
+    let entityCount = 0;
+    for (const entity of entitiesData) {
+      const evmAddresses = entity.addresses?.evm || [];
+      for (const address of evmAddresses) {
+        const normalized = address.toLowerCase();
+        tagMap.set(normalized, {
+          address: normalized,
+          name: entity.name,
+          entity: entity.name,
+          source: 'arkham',
+        });
+        entityCount++;
+      }
+    }
+    console.log(`[WalletTagger] Fetched ${entityCount} addresses from entities`);
+  }
+
+  // Fetch individual labels (these override/augment entity entries)
+  const labelsResponse = await fetch('https://api.arkm.com/user/labels', {
+    credentials: 'include',
+  });
+
+  if (labelsResponse.ok) {
+    const labelsData = await labelsResponse.json();
+    let labelCount = 0;
+    for (const item of labelsData) {
+      if (item.chainType === 'evm') {
+        const normalized = item.address.toLowerCase();
+        const existing = tagMap.get(normalized);
+        tagMap.set(normalized, {
+          address: normalized,
+          name: item.name,
+          entity: existing?.entity, // Keep entity if address was in an entity
+          source: 'arkham',
+        });
+        labelCount++;
+      }
+    }
+    console.log(`[WalletTagger] Fetched ${labelCount} individual labels`);
+  }
+
+  const tags = Array.from(tagMap.values());
+
+  if (tags.length === 0) {
+    throw new Error('No labels or entities found');
+  }
+
+  console.log(`[WalletTagger] Total unique addresses: ${tags.length}`);
+  return tags;
+}
+
+// Listen for messages from background
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'TAGS_UPDATED') {
+    // Refresh tag cache and rescan
+    chrome.runtime.sendMessage({ type: 'GET_ALL_TAGS_DATA' }).then((response) => {
+      if (response?.tags) {
+        tagCache = new Map(Object.entries(response.tags));
+        knownAddresses = Array.from(tagCache.keys());
+
+        // Remove existing markers and rescan
+        document.querySelectorAll('.wt-processed').forEach((el) => {
+          el.classList.remove('wt-processed');
+        });
+        document.querySelectorAll('.wt-address-wrapper').forEach((el) => {
+          // Restore original address from data attribute
+          const address = el.getAttribute('data-address') || '';
+          el.replaceWith(document.createTextNode(address));
+        });
+        scanPage();
+      }
+    });
+  }
+});
+
+// Initialize
+initialize();

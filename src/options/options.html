@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wallet Tagger Settings</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 40px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+
+    .subtitle {
+      color: #6a6a8a;
+      margin-bottom: 32px;
+    }
+
+    .card {
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .card h2 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: #2a2a4e;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: #4ade80;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #6a6a8a;
+      margin-top: 4px;
+    }
+
+    .source-list {
+      margin-top: 16px;
+    }
+
+    .source-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: #2a2a4e;
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+
+    .source-name {
+      font-weight: 500;
+    }
+
+    .source-count {
+      color: #4ade80;
+    }
+
+    .source-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      background: #3a3a6a;
+      border: none;
+      color: #e0e0e0;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .btn:hover {
+      background: #4a4a7a;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4a4a8a 0%, #3a3a6a 100%);
+    }
+
+    .btn-danger {
+      background: #6a3a3a;
+    }
+
+    .btn-danger:hover {
+      background: #8a4a4a;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="url"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #3a3a5a;
+      border-radius: 6px;
+      background: #2a2a4e;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #4ade80;
+    }
+
+    .file-input-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+
+    .file-input-wrapper input[type="file"] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .form-row input {
+      flex: 1;
+    }
+
+    .message {
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .message.success {
+      background: rgba(74, 222, 128, 0.2);
+      border: 1px solid #4ade80;
+      color: #4ade80;
+      display: block;
+    }
+
+    .message.error {
+      background: rgba(255, 100, 100, 0.2);
+      border: 1px solid #ff6464;
+      color: #ff6464;
+      display: block;
+    }
+
+    .export-section {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    textarea {
+      width: 100%;
+      height: 200px;
+      padding: 12px;
+      border: 1px solid #3a3a5a;
+      border-radius: 6px;
+      background: #2a2a4e;
+      color: #e0e0e0;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      resize: vertical;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏷️ Tactical Retreat's Wallet Tagger</h1>
+    <p class="subtitle">Manage your wallet tags and settings</p>
+
+    <div id="message" class="message"></div>
+
+    <!-- Stats Card -->
+    <div class="card">
+      <h2>📊 Statistics</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalTags">-</div>
+          <div class="stat-label">Total Tags</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="uniqueAddresses">-</div>
+          <div class="stat-label">Unique Addresses</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="sourceCount">-</div>
+          <div class="stat-label">Sources</div>
+        </div>
+      </div>
+
+      <div class="source-list" id="sourceList">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Import CSV Card -->
+    <div class="card">
+      <h2>📥 Import Tags</h2>
+
+      <div class="form-group">
+        <label>Upload CSV File</label>
+        <div class="file-input-wrapper">
+          <button class="btn btn-primary">Choose File...</button>
+          <input type="file" id="csvFileInput" accept=".csv">
+        </div>
+        <span id="fileName" style="margin-left: 12px; color: #6a6a8a;"></span>
+      </div>
+
+      <div class="form-group">
+        <label>Or Load from URL</label>
+        <div class="form-row">
+          <input type="url" id="csvUrlInput" placeholder="https://example.com/tags.csv">
+          <button class="btn btn-primary" id="loadUrlBtn">Load</button>
+        </div>
+      </div>
+
+      <p style="color: #6a6a8a; font-size: 12px; margin-top: 12px;">
+        CSV format: address,name (with header row)
+      </p>
+    </div>
+
+    <!-- Arkham Import Card -->
+    <div class="card">
+      <h2>🔍 Arkham Integration</h2>
+      <p style="margin-bottom: 16px; color: #a0a0c0;">
+        To import your Arkham labels, navigate to your Private Labels page on Arkham while logged in.
+        The extension will show an import button on that page.
+      </p>
+      <a href="https://platform.arkhamintelligence.com/settings/labels" target="_blank" class="btn btn-primary">
+        Open Arkham Labels Page →
+      </a>
+    </div>
+
+    <!-- Export Card -->
+    <div class="card">
+      <h2>📤 Export Tags</h2>
+      <div class="export-section">
+        <button class="btn" id="exportArkhamBtn">Export Arkham Tags</button>
+        <button class="btn" id="exportAllBtn">Export All Tags</button>
+      </div>
+      <textarea id="exportOutput" placeholder="Exported CSV will appear here..." readonly></textarea>
+      <button class="btn" id="copyExportBtn" style="margin-top: 8px;">📋 Copy to Clipboard</button>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

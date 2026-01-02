@@ -1,0 +1,205 @@
+/* Wallet Tagger Content Styles */
+
+.wt-address-wrapper {
+  position: relative;
+  display: inline;
+  cursor: pointer;
+}
+
+.wt-address-wrapper:hover {
+  background-color: rgba(100, 150, 255, 0.15);
+  border-radius: 3px;
+}
+
+.wt-has-tag {
+  background-color: rgba(74, 222, 128, 0.1);
+  border-radius: 6px;
+  padding: 2px 8px;
+  border: 1.5px dashed rgba(74, 222, 128, 0.7);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wt-has-tag:hover {
+  background-color: rgba(74, 222, 128, 0.2);
+  border-color: rgba(74, 222, 128, 1);
+}
+
+.wt-tag-label {
+  color: #4ade80;
+  font-weight: 500;
+  font-size: inherit;
+}
+
+.wt-tag-short-address {
+  color: #888;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.wt-indicator {
+  display: none; /* Hide the indicator emoji when we have the tag label */
+}
+
+/* For non-tagged addresses, keep simple styling */
+.wt-address-wrapper:not(.wt-has-tag) {
+  /* No special styling for untagged addresses */
+}
+
+.wt-address-wrapper:not(.wt-has-tag):hover {
+  background-color: rgba(100, 150, 255, 0.15);
+  border-radius: 3px;
+}
+
+.wt-address-text {
+  /* Inherit parent styling */
+}
+
+/* Control Panel */
+.wt-control-panel {
+  background: #1a1a2e;
+  border: 1px solid #4a4a6a;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 280px;
+  max-width: 400px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: #e0e0e0;
+}
+
+.wt-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #3a3a5a;
+  margin-bottom: 8px;
+}
+
+.wt-panel-address {
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  color: #a0a0c0;
+  flex: 1;
+}
+
+.wt-copy-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.wt-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.wt-panel-tags {
+  margin-bottom: 10px;
+}
+
+.wt-panel-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.wt-tag-name {
+  color: #4ade80;
+  font-weight: 500;
+  flex: 1;
+}
+
+.wt-tag-source {
+  color: #6a6a8a;
+  font-size: 11px;
+}
+
+.wt-panel-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid #3a3a5a;
+}
+
+.wt-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #2a2a4e;
+  border: 1px solid #4a4a6a;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.wt-action-btn:hover {
+  background: #3a3a5e;
+  border-color: #6a6a8a;
+  transform: translateY(-1px);
+}
+
+.wt-action-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+/* Arkham Import Button */
+.wt-arkham-import-btn {
+  background: linear-gradient(135deg, #4a4a8a 0%, #3a3a6a 100%);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s;
+}
+
+.wt-arkham-import-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.wt-arkham-import-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Inline actions for special sites */
+.wt-inline-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.wt-inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: rgba(100, 100, 150, 0.2);
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.wt-inline-action:hover {
+  background: rgba(100, 100, 150, 0.4);
+}
