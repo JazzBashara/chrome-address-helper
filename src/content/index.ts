@@ -741,16 +741,16 @@ function handleDexTransactionsTable() {
     const currentGrid = getComputedStyle(headerTr).gridTemplateColumns;
     const cols = currentGrid.split(/\s+/);
 
-    // Shrink some columns to make room for TAG (70px)
-    // Columns 2,3,4 are typically USD, ARENA, WAVAX - shrink by ~23px each
-    for (const idx of [2, 3, 4]) {
+    // Shrink some columns to make room for TAG (140px)
+    // Columns 2,3,4,5 are typically USD, ARENA, WAVAX, Price - shrink by ~35px each
+    for (const idx of [2, 3, 4, 5]) {
       const val = parseFloat(cols[idx]);
       if (!isNaN(val) && val > 100) {
-        cols[idx] = (val - 23) + 'px';
+        cols[idx] = (val - 35) + 'px';
       }
     }
 
-    cols.push('70px');
+    cols.push('140px');
     const newGrid = cols.join(' ');
     dexGridTemplates.set('transactions', newGrid);
     headerTr.style.gridTemplateColumns = newGrid;
@@ -824,11 +824,11 @@ function processGridTable(header: HTMLElement, tableName: string) {
     const currentGrid = getComputedStyle(header).gridTemplateColumns;
     const cols = currentGrid.split(/\s+/);
 
-    // Shrink larger columns to make room for TAG (70px)
-    // Find columns > 150px and shrink them proportionally
-    let totalToShrink = 70;
+    // Shrink larger columns to make room for TAG (140px)
+    // Find columns > 120px and shrink them proportionally
+    let totalToShrink = 140;
     const shrinkableIdxs = cols.map((col, i) => ({ i, val: parseFloat(col) }))
-      .filter(c => !isNaN(c.val) && c.val > 150)
+      .filter(c => !isNaN(c.val) && c.val > 120)
       .map(c => c.i);
 
     if (shrinkableIdxs.length > 0) {
@@ -839,7 +839,7 @@ function processGridTable(header: HTMLElement, tableName: string) {
       }
     }
 
-    cols.push('70px');
+    cols.push('140px');
     const newGrid = cols.join(' ');
     dexGridTemplates.set(tableName, newGrid);
     header.style.gridTemplateColumns = newGrid;
