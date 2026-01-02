@@ -372,12 +372,14 @@ async function showControlPanelNow(target: HTMLElement, address: string) {
   // Create invisible bridge that overlaps trigger and panel
   controlPanelBridge = document.createElement('div');
   controlPanelBridge.className = 'wt-control-panel-bridge';
+  // Bridge only covers gap between link bottom and panel, not the link itself
+  // This allows the link to remain clickable
   controlPanelBridge.style.cssText = `
     position: fixed;
     left: ${rect.left - 20}px;
-    top: ${rect.top - 5}px;
+    top: ${rect.bottom}px;
     width: ${rect.width + 40}px;
-    height: ${rect.height + 20}px;
+    height: 15px;
     z-index: 999998;
     background: transparent;
     pointer-events: auto;
