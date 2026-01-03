@@ -72,7 +72,10 @@ export type MessageType =
   | { type: 'GET_ALL_TAGS_DATA' }
   | { type: 'IMPORT_CSV'; csv: string; source: string }
   | { type: 'IMPORT_ARKHAM_TAGS'; tags: Tag[] }
+  | { type: 'IMPORT_TAGS'; tags: Tag[] }
   | { type: 'EXPORT_ARKHAM_TAGS' }
+  | { type: 'EXPORT_ALL_SOURCES' }
+  | { type: 'REMOVE_SOURCE'; source: string }
   | { type: 'GET_SETTINGS' }
   | { type: 'UPDATE_SETTINGS'; settings: Partial<ExtensionSettings> }
   | { type: 'GET_STATS' };
